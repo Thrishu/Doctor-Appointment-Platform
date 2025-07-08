@@ -14,7 +14,7 @@ You need to have Node.js and npm installed on your machine.
 
 1.  Clone the repo
     ```sh
-    git clone https://github.com/your_username_/Project-Name.git
+    https://github.com/Thrishu/Doctor-Appointment-Platform.git
     ```
 2.  Install NPM packages
     ```sh
