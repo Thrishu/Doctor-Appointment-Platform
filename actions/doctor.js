@@ -5,7 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 
 /**
- * Set doctor's availability slots
+ * Set doctor's availability slots (multi-slot version)
  */
 export async function setAvailabilitySlots(formData) {
   const { userId } = await auth();
@@ -27,56 +27,69 @@ export async function setAvailabilitySlots(formData) {
       throw new Error("Doctor not found");
     }
 
-    // Get form data
-    const startTime = formData.get("startTime");
-    const endTime = formData.get("endTime");
-
-    // Validate input
-    if (!startTime || !endTime) {
-      throw new Error("Start time and end time are required");
+    // Parse slots from formData (expecting JSON stringified array)
+    const slotsJson = formData.get("slots");
+    let slots = [];
+    try {
+      slots = JSON.parse(slotsJson);
+    } catch (e) {
+      throw new Error("Invalid slots data");
     }
 
-    if (startTime >= endTime) {
-      throw new Error("Start time must be before end time");
+    if (!Array.isArray(slots) || slots.length === 0) {
+      throw new Error("At least one slot is required");
     }
 
-    // Check if the doctor already has slots
-    const existingSlots = await db.availability.findMany({
-      where: {
-        doctorId: doctor.id,
-      },
-    });
+    // Validate all slots
+    for (const slot of slots) {
+      if (!slot.startTime || !slot.endTime) {
+        throw new Error("Start time and end time are required for all slots");
+      }
+      if (slot.startTime >= slot.endTime) {
+        throw new Error("Start time must be before end time for all slots");
+      }
+    }
 
-    // If slots exist, delete them all (we're replacing them)
-    if (existingSlots.length > 0) {
-      // Don't delete slots that already have appointments
-      const slotsWithNoAppointments = existingSlots.filter(
-        (slot) => !slot.appointment
-      );
+    // For each slot, determine the day (YYYY-MM-DD)
+    const days = new Set(slots.map(slot => new Date(slot.startTime).toISOString().split("T")[0]));
 
-      if (slotsWithNoAppointments.length > 0) {
+    // For each day, delete existing slots for that doctor on that day (if not booked)
+    for (const day of days) {
+      const dayStart = new Date(day + "T00:00:00.000Z");
+      const dayEnd = new Date(day + "T23:59:59.999Z");
+      const existingSlots = await db.availability.findMany({
+        where: {
+          doctorId: doctor.id,
+          startTime: { gte: dayStart, lte: dayEnd },
+        },
+      });
+      if (existingSlots.length > 0) {
         await db.availability.deleteMany({
           where: {
             id: {
-              in: slotsWithNoAppointments.map((slot) => slot.id),
+              in: existingSlots.map((slot) => slot.id),
             },
           },
         });
       }
     }
 
-    // Create new availability slot
-    const newSlot = await db.availability.create({
-      data: {
-        doctorId: doctor.id,
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
-        status: "AVAILABLE",
-      },
-    });
+    // Create new slots
+    const createdSlots = [];
+    for (const slot of slots) {
+      const newSlot = await db.availability.create({
+        data: {
+          doctorId: doctor.id,
+          startTime: new Date(slot.startTime),
+          endTime: new Date(slot.endTime),
+          status: "AVAILABLE",
+        },
+      });
+      createdSlots.push(newSlot);
+    }
 
     revalidatePath("/doctor");
-    return { success: true, slot: newSlot };
+    return { success: true, slots: createdSlots };
   } catch (error) {
     console.error("Failed to set availability slots:", error);
     throw new Error("Failed to set availability: " + error.message);

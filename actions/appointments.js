@@ -41,13 +41,12 @@ export async function bookAppointment(formData) {
 
     // Parse form data
     const doctorId = formData.get("doctorId");
-    const startTime = new Date(formData.get("startTime"));
-    const endTime = new Date(formData.get("endTime"));
+    const slotId = formData.get("slotId");
     const patientDescription = formData.get("description") || null;
 
     // Validate input
-    if (!doctorId || !startTime || !endTime) {
-      throw new Error("Doctor, start time, and end time are required");
+    if (!doctorId || !slotId) {
+      throw new Error("Doctor and slot are required");
     }
 
     // Check if the doctor exists and is verified
@@ -63,45 +62,30 @@ export async function bookAppointment(formData) {
       throw new Error("Doctor not found or not verified");
     }
 
+    // Find the availability slot by ID
+    const availability = await db.availability.findUnique({
+      where: { id: slotId },
+    });
+
+    if (!availability || availability.doctorId !== doctorId || availability.status !== "AVAILABLE") {
+      throw new Error("The doctor is not available at the requested time");
+    }
+
+    const startTime = availability.startTime;
+    const endTime = availability.endTime;
+
     // Check if the patient has enough credits (2 credits per appointment)
     if (patient.credits < 2) {
       throw new Error("Insufficient credits to book an appointment");
     }
 
-    // Check if the requested time slot is available
+    // Check if the requested time slot is already booked
     const overlappingAppointment = await db.appointment.findFirst({
       where: {
         doctorId: doctorId,
         status: "SCHEDULED",
-        OR: [
-          {
-            // New appointment starts during an existing appointment
-            startTime: {
-              lte: startTime,
-            },
-            endTime: {
-              gt: startTime,
-            },
-          },
-          {
-            // New appointment ends during an existing appointment
-            startTime: {
-              lt: endTime,
-            },
-            endTime: {
-              gte: endTime,
-            },
-          },
-          {
-            // New appointment completely overlaps an existing appointment
-            startTime: {
-              gte: startTime,
-            },
-            endTime: {
-              lte: endTime,
-            },
-          },
-        ],
+        startTime: startTime,
+        endTime: endTime,
       },
     });
 
@@ -133,6 +117,12 @@ export async function bookAppointment(formData) {
         status: "SCHEDULED",
         videoSessionId: sessionId, // Store the Vonage session ID
       },
+    });
+
+    // Mark the slot as BOOKED
+    await db.availability.update({
+      where: { id: slotId },
+      data: { status: "BOOKED" },
     });
 
     revalidatePath("/appointments");
@@ -298,16 +288,16 @@ export async function getAvailableTimeSlots(doctorId) {
       throw new Error("Doctor not found or not verified");
     }
 
-    // Fetch a single availability record
-    const availability = await db.availability.findFirst({
+    // Fetch all availability records
+    const availabilities = await db.availability.findMany({
       where: {
         doctorId: doctor.id,
         status: "AVAILABLE",
       },
     });
 
-    if (!availability) {
-      throw new Error("No availability set by doctor");
+    if (!availabilities || availabilities.length === 0) {
+      return { days: [] };
     }
 
     // Get the next 4 days
@@ -333,9 +323,11 @@ export async function getAvailableTimeSlots(doctorId) {
       const dayString = format(day, "yyyy-MM-dd");
       availableSlotsByDay[dayString] = [];
 
-      // Create a copy of the availability start/end times for this day
-      const availabilityStart = new Date(availability.startTime);
-      const availabilityEnd = new Date(availability.endTime);
+      // For each availability period, generate slots
+      for (const availability of availabilities) {
+        // Create a copy of the availability start/end times for this day
+        const availabilityStart = new Date(availability.startTime);
+        const availabilityEnd = new Date(availability.endTime);
 
       // Set the day to the current day we're processing
       availabilityStart.setFullYear(
@@ -377,6 +369,7 @@ export async function getAvailableTimeSlots(doctorId) {
 
         if (!overlaps) {
           availableSlotsByDay[dayString].push({
+            id: availability.id, // include slot id for booking
             startTime: current.toISOString(),
             endTime: next.toISOString(),
             formatted: `${format(current, "h:mm a")} - ${format(
@@ -388,6 +381,7 @@ export async function getAvailableTimeSlots(doctorId) {
         }
 
         current = next;
+      }
       }
     }
 

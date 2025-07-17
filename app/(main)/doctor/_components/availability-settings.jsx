@@ -20,62 +20,62 @@ import { toast } from "sonner";
 
 export function AvailabilitySettings({ slots }) {
   const [showForm, setShowForm] = useState(false);
+  const [localSlots, setLocalSlots] = useState([]);
 
   // Custom hook for server action
   const { loading, fn: submitSlots, data } = useFetch(setAvailabilitySlots);
 
-  // React Hook Form
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm({
-    defaultValues: {
-      startTime: "",
-      endTime: "",
-    },
-  });
+  // Add a new empty slot
+  const addSlot = () => {
+    setLocalSlots([
+      ...localSlots,
+      { startTime: '', endTime: '' }
+    ]);
+  };
 
-  function createLocalDateFromTime(timeStr) {
-    const [hours, minutes] = timeStr.split(":").map(Number);
-    const now = new Date();
-    const date = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      hours,
-      minutes
-    );
-    return date;
-  }
+  // Remove a slot by index
+  const removeSlot = (idx) => {
+    setLocalSlots(localSlots.filter((_, i) => i !== idx));
+  };
+
+  // Update a slot's time
+  const updateSlot = (idx, field, value) => {
+    setLocalSlots(localSlots.map((slot, i) =>
+      i === idx ? { ...slot, [field]: value } : slot
+    ));
+  };
 
   // Handle slot submission
-  const onSubmit = async (data) => {
+  const onSubmit = async () => {
     if (loading) return;
-
-    const formData = new FormData();
-
+    // Validate slots
     const today = new Date().toISOString().split("T")[0];
-
-    // Create date objects
-    const startDate = createLocalDateFromTime(data.startTime);
-    const endDate = createLocalDateFromTime(data.endTime);
-
-    if (startDate >= endDate) {
-      toast.error("End time must be after start time");
-      return;
+    const slotObjs = localSlots.map(slot => {
+      // Convert local time to UTC ISO string
+      const startDate = new Date(`${today}T${slot.startTime}:00`);
+      const endDate = new Date(`${today}T${slot.endTime}:00`);
+      return {
+        startTime: startDate.toISOString(),
+        endTime: endDate.toISOString(),
+      };
+    });
+    // Basic validation
+    for (const slot of slotObjs) {
+      if (!slot.startTime || !slot.endTime || slot.startTime >= slot.endTime) {
+        toast.error("Each slot must have a valid start and end time, and end must be after start.");
+        return;
+      }
     }
-
-    // Add to form data
-    formData.append("startTime", startDate.toISOString());
-    formData.append("endTime", endDate.toISOString());
-
+    // Send as JSON string
+    const formData = new FormData();
+    formData.append('slots', JSON.stringify(slotObjs));
     await submitSlots(formData);
   };
 
   useEffect(() => {
     if (data && data?.success) {
       setShowForm(false);
+      setLocalSlots([]);
       toast.success("Availability slots updated successfully");
     }
   }, [data]);
@@ -140,7 +140,7 @@ export function AvailabilitySettings({ slots }) {
             </div>
 
             <Button
-              onClick={() => setShowForm(true)}
+              onClick={() => { setShowForm(true); setLocalSlots([]); }}
               className="w-full bg-emerald-600 hover:bg-emerald-700"
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -149,45 +149,51 @@ export function AvailabilitySettings({ slots }) {
           </>
         ) : (
           <form
-            onSubmit={handleSubmit(onSubmit)}
+            onSubmit={e => { e.preventDefault(); onSubmit(); }}
             className="space-y-4 border border-emerald-900/20 rounded-md p-4"
           >
             <h3 className="text-lg font-medium text-white mb-2">
               Set Daily Availability
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="startTime">Start Time</Label>
-                <Input
-                  id="startTime"
-                  type="time"
-                  {...register("startTime", {
-                    required: "Start time is required",
-                  })}
-                  className="bg-background border-emerald-900/20"
-                />
-                {errors.startTime && (
-                  <p className="text-sm font-medium text-red-500">
-                    {errors.startTime.message}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="endTime">End Time</Label>
-                <Input
-                  id="endTime"
-                  type="time"
-                  {...register("endTime", { required: "End time is required" })}
-                  className="bg-background border-emerald-900/20"
-                />
-                {errors.endTime && (
-                  <p className="text-sm font-medium text-red-500">
-                    {errors.endTime.message}
-                  </p>
-                )}
-              </div>
+            <div className="space-y-4">
+              {localSlots.map((slot, idx) => (
+                <div key={idx} className="flex gap-4 items-end">
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor={`startTime-${idx}`}>Start Time</Label>
+                    <Input
+                      id={`startTime-${idx}`}
+                      type="time"
+                      value={slot.startTime}
+                      onChange={e => updateSlot(idx, 'startTime', e.target.value)}
+                      className="bg-background border-emerald-900/20"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor={`endTime-${idx}`}>End Time</Label>
+                    <Input
+                      id={`endTime-${idx}`}
+                      type="time"
+                      value={slot.endTime}
+                      onChange={e => updateSlot(idx, 'endTime', e.target.value)}
+                      className="bg-background border-emerald-900/20"
+                      required
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => removeSlot(idx)}
+                    className="ml-2"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" onClick={addSlot} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                <Plus className="h-4 w-4 mr-2" /> Add Slot
+              </Button>
             </div>
 
             <div className="flex justify-end space-x-3 pt-2">

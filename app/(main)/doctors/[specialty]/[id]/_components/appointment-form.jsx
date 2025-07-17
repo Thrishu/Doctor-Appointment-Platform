@@ -23,8 +23,7 @@ export function AppointmentForm({ doctorId, slot, onBack, onComplete }) {
     // Create form data
     const formData = new FormData();
     formData.append("doctorId", doctorId);
-    formData.append("startTime", slot.startTime);
-    formData.append("endTime", slot.endTime);
+    formData.append("slotId", slot.id); // Use slot.id for booking
     formData.append("description", description);
 
     // Submit booking using the function from useFetch
