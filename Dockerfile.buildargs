@@ -1,0 +1,78 @@
+
+# Stage 1: Build the application
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files and prisma schema first
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+
+# Install dependencies
+RUN npm ci
+
+# Copy the rest of the app
+COPY . .
+
+# Accept build-time environment variables
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ARG CLERK_SECRET_KEY
+ARG NEXT_PUBLIC_CLERK_SIGN_IN_URL
+ARG NEXT_PUBLIC_CLERK_SIGN_UP_URL
+ARG NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL
+ARG NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL
+ARG DATABASE_URL
+ARG NEXT_PUBLIC_VONAGE_APPLICATION_ID
+ARG VONAGE_PRIVATE_KEY
+
+# Generate .env file from build args if not already present
+RUN if [ ! -f .env ]; then \
+  echo "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" >> .env && \
+  echo "CLERK_SECRET_KEY=$CLERK_SECRET_KEY" >> .env && \
+  echo "NEXT_PUBLIC_CLERK_SIGN_IN_URL=$NEXT_PUBLIC_CLERK_SIGN_IN_URL" >> .env && \
+  echo "NEXT_PUBLIC_CLERK_SIGN_UP_URL=$NEXT_PUBLIC_CLERK_SIGN_UP_URL" >> .env && \
+  echo "NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=$NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL" >> .env && \
+  echo "NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=$NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL" >> .env && \
+  echo "DATABASE_URL=$DATABASE_URL" >> .env && \
+  echo "NEXT_PUBLIC_VONAGE_APPLICATION_ID=$NEXT_PUBLIC_VONAGE_APPLICATION_ID" >> .env && \
+  echo "VONAGE_PRIVATE_KEY=$VONAGE_PRIVATE_KEY" >> .env; \
+fi
+
+
+# Generate .env file from build args if not already present
+RUN if [ ! -f .env ]; then \
+  echo "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" >> .env && \
+  echo "CLERK_SECRET_KEY=$CLERK_SECRET_KEY" >> .env && \
+  echo "NEXT_PUBLIC_CLERK_SIGN_IN_URL=$NEXT_PUBLIC_CLERK_SIGN_IN_URL" >> .env && \
+  echo "NEXT_PUBLIC_CLERK_SIGN_UP_URL=$NEXT_PUBLIC_CLERK_SIGN_UP_URL" >> .env && \
+  echo "NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=$NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL" >> .env && \
+  echo "NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=$NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL" >> .env && \
+  echo "DATABASE_URL=$DATABASE_URL" >> .env && \
+  echo "NEXT_PUBLIC_VONAGE_APPLICATION_ID=$NEXT_PUBLIC_VONAGE_APPLICATION_ID" >> .env && \
+  echo "VONAGE_PRIVATE_KEY=$VONAGE_PRIVATE_KEY" >> .env; \
+fi
+
+
+
+
+# Build the app
+RUN npm run build
+
+
+# Stage 2: Run the production app
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Copy built app from builder
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/.env ./.env
+
+
+
+EXPOSE 3000
+CMD ["npm", "start"]
