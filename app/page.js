@@ -68,7 +68,7 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-              How It Works
+              How devops Works
             </h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
               Our platform makes healthcare accessible with just a few clicks
